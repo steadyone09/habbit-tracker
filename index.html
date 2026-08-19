@@ -134,17 +134,11 @@
           setHabits(habitsRes.data || []);
           setHabitLogs(logsRes.data || []);
 
-          // 카테고리 테이블 데이터 가져오기 (없을 경우를 대비한 Fallback 로직)
+          // 카테고리 테이블 데이터 가져오기 (완전한 DB 연동)
           const catRes = await supabase.from('categories').select('*');
-          if (catRes.error || !catRes.data || catRes.data.length === 0) {
-            // DB에 테이블이 없거나 데이터가 비어있으면 기본값 세팅
-            setCategories([
-              { id: 'cat-1', name: '건강' }, { id: 'cat-2', name: '학습' },
-              { id: 'cat-3', name: '생활' }, { id: 'cat-4', name: '운동' }, { id: 'cat-5', name: '멘탈' }
-            ]);
-          } else {
-            setCategories(catRes.data);
-          }
+          if (catRes.error) throw catRes.error;
+          
+          setCategories(catRes.data || []);
         } catch (err) {
           console.error("데이터 로드 실패:", err);
           showError("데이터를 불러오는데 실패했습니다: " + err.message);
@@ -198,28 +192,36 @@
             else if (data && data.length > 0) setHabitLogs(prev => prev.map(l => l.id === tempLog.id ? data[0] : l)); 
           }
         },
-        /* [신규] 카테고리 관리 API */
+        /* [완전 동기화] 카테고리 관리 API (Supabase 연동 및 즉시 반영) */
         addCategory: async (name) => {
-          const newCat = { name };
-          const tempCat = { id: 'temp-cat-' + Date.now(), name };
-          setCategories(prev => [...prev, tempCat]);
-          const { data, error } = await supabase.from('categories').insert([newCat]).select();
+          const tempId = 'temp-cat-' + Date.now();
+          setCategories(prev => [...prev, { id: tempId, name }]); // 화면 즉시 갱신 (낙관적 업데이트)
+          
+          const { data, error } = await supabase.from('categories').insert([{ name }]).select();
           if (error) { 
-            // DB에 테이블이 없는 경우 로컬 상태만이라도 유지 (미리보기 및 임시 사용용)
-            console.warn('DB에 카테고리 저장 실패(테이블 누락 가능성). 로컬에만 적용합니다.');
+            showError('카테고리 저장 오류: ' + error.message);
+            fetchAllData(); // 에러 발생 시 DB 원본으로 복구
           } else if (data && data.length > 0) {
-            setCategories(prev => prev.map(c => c.id === tempCat.id ? data[0] : c));
+            setCategories(prev => prev.map(c => c.id === tempId ? data[0] : c)); // 성공 시 실제 DB ID로 교체
           }
         },
         updateCategory: async (id, newName) => {
           setCategories(prev => prev.map(c => c.id === id ? { ...c, name: newName } : c));
+          
           const { error } = await supabase.from('categories').update({ name: newName }).eq('id', id);
-          if (error) console.warn('카테고리 업데이트 실패');
+          if (error) {
+            showError('카테고리 수정 오류: ' + error.message);
+            fetchAllData(); // 에러 발생 시 복구
+          }
         },
         deleteCategory: async (id) => {
           setCategories(prev => prev.filter(c => c.id !== id));
+          
           const { error } = await supabase.from('categories').delete().eq('id', id);
-          if (error) console.warn('카테고리 삭제 실패');
+          if (error) {
+            showError('카테고리 삭제 오류: ' + error.message);
+            fetchAllData(); // 에러 발생 시 복구
+          }
         }
       };
 
@@ -451,6 +453,7 @@
                   <div className="flex-1">
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">카테고리</label>
                     <select value={newHabit.category} onChange={e => setNewHabit({...newHabit, category: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 transition-all bg-white">
+                      {categories.length === 0 && <option value="건강">건강 (기본)</option>}
                       {categories.map(cat => (
                         <option key={cat.id} value={cat.name}>{cat.name}</option>
                       ))}
@@ -535,7 +538,7 @@
       const { users, habits, habitLogs, categories } = data;
       const [activeTab, setActiveTab] = useState('overview');
       const [newUserCode, setNewUserCode] = useState('');
-      const [assignForm, setAssignForm] = useState({ user_code: '', title: '', category: categories.length > 0 ? categories[0].name : '', check_type: 'boolean', unit: '' });
+      const [assignForm, setAssignForm] = useState({ user_code: '', title: '', category: categories.length > 0 ? categories[0].name : '건강', check_type: 'boolean', unit: '' });
       
       // 카테고리 관리용 State
       const [newCatName, setNewCatName] = useState('');
@@ -747,6 +750,7 @@
                 <div className="flex-1">
                   <label className="block text-sm font-bold text-slate-700 mb-2">카테고리</label>
                   <select value={assignForm.category} onChange={e => setAssignForm({...assignForm, category: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white">
+                    {categories.length === 0 && <option value="건강">건강 (기본)</option>}
                     {categories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}
                   </select>
                 </div>
