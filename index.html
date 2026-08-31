@@ -2,11 +2,10 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>개인 맞춤형 습관 관제 시스템</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
-  
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
   <style>
@@ -26,7 +25,7 @@
       to { opacity: 1; transform: translateY(0); }
     }
     /* 커스텀 스크롤바 */
-    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
@@ -43,7 +42,7 @@
       CheckCircle2, Circle, Flame, TrendingUp, BarChart3, 
       LogOut, Plus, Trash2, Users, Calendar, ArrowLeft, ArrowRight,
       Activity, Target, ShieldCheck, Loader2, AlertCircle, X, XCircle,
-      Tags, Edit3, Save
+      Tags, Edit3, Save, ChevronLeft, ChevronRight, Award, PieChart, Layers
     } from 'https://esm.sh/lucide-react@0.294.0?deps=react@18.2.0';
     import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 
@@ -120,24 +119,24 @@
       const fetchAllData = async () => {
         setIsLoading(true);
         try {
-          const [usersRes, habitsRes, logsRes] = await Promise.all([
+          const [usersRes, habitsRes, logsRes, catRes] = await Promise.all([
             supabase.from('users').select('*'),
             supabase.from('habits').select('*'),
-            supabase.from('habit_logs').select('*')
+            supabase.from('habit_logs').select('*'),
+            supabase.from('categories').select('*')
           ]);
 
           if (usersRes.error) throw usersRes.error;
           if (habitsRes.error) throw habitsRes.error;
           if (logsRes.error) throw logsRes.error;
+          // categories 테이블이 아직 없거나 오류가 나도 화면을 표시할 수 있게 옵셔널 처리
+          if (catRes.error && catRes.error.code !== '42P01') { 
+            console.warn("카테고리 로딩 경고:", catRes.error);
+          }
 
           setUsers(usersRes.data || []);
           setHabits(habitsRes.data || []);
           setHabitLogs(logsRes.data || []);
-
-          // 카테고리 테이블 데이터 가져오기 (완전한 DB 연동)
-          const catRes = await supabase.from('categories').select('*');
-          if (catRes.error) throw catRes.error;
-          
           setCategories(catRes.data || []);
         } catch (err) {
           console.error("데이터 로드 실패:", err);
@@ -152,7 +151,6 @@
       }, []);
 
       const api = {
-        /* 유저 및 기존 API 로직 유지 */
         addUser: async (user_code) => {
           const newUser = { user_code };
           const tempUser = { id: 'temp-' + Date.now(), user_code, created_at: new Date().toISOString() };
@@ -200,36 +198,18 @@
             if (error) { showError('기록 삭제 오류: ' + error.message); fetchAllData(); }
           }
         },
-        /* [완전 동기화] 카테고리 관리 API (Supabase 연동 및 즉시 반영) */
         addCategory: async (name) => {
           const tempId = 'temp-cat-' + Date.now();
-          setCategories(prev => [...prev, { id: tempId, name }]); // 화면 즉시 갱신 (낙관적 업데이트)
+          setCategories(prev => [...prev, { id: tempId, name }]);
           
           const { data, error } = await supabase.from('categories').insert([{ name }]).select();
-          if (error) { 
-            showError('카테고리 저장 오류: ' + error.message);
-            fetchAllData(); // 에러 발생 시 DB 원본으로 복구
-          } else if (data && data.length > 0) {
-            setCategories(prev => prev.map(c => c.id === tempId ? data[0] : c)); // 성공 시 실제 DB ID로 교체
-          }
-        },
-        updateCategory: async (id, newName) => {
-          setCategories(prev => prev.map(c => c.id === id ? { ...c, name: newName } : c));
-          
-          const { error } = await supabase.from('categories').update({ name: newName }).eq('id', id);
-          if (error) {
-            showError('카테고리 수정 오류: ' + error.message);
-            fetchAllData(); // 에러 발생 시 복구
-          }
+          if (error) { showError('카테고리 저장 오류: ' + error.message); fetchAllData(); } 
+          else if (data && data.length > 0) setCategories(prev => prev.map(c => c.id === tempId ? data[0] : c));
         },
         deleteCategory: async (id) => {
           setCategories(prev => prev.filter(c => c.id !== id));
-          
           const { error } = await supabase.from('categories').delete().eq('id', id);
-          if (error) {
-            showError('카테고리 삭제 오류: ' + error.message);
-            fetchAllData(); // 에러 발생 시 복구
-          }
+          if (error) { showError('카테고리 삭제 오류: ' + error.message); fetchAllData(); }
         }
       };
 
@@ -245,7 +225,7 @@
             <p className="text-slate-600 mb-6 text-sm leading-relaxed">{message}</p>
             <div className="flex space-x-3">
               <button onClick={onCancel} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-colors">취소</button>
-              <button onClick={onConfirm} className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium transition-colors">삭제하기</button>
+              <button onClick={onConfirm} className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium transition-colors">확인</button>
             </div>
           </div>
         </div>
@@ -305,20 +285,76 @@
 
     const UserDashboard = ({ userCode, habits, logs, categories, api, isLoading }) => {
       const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
+      const [mainTab, setMainTab] = useState('daily');
+      
+      const [statsPeriod, setStatsPeriod] = useState('monthly');
+      const [statsAnchorDate, setStatsAnchorDate] = useState(new Date());
+
       const [isAdding, setIsAdding] = useState(false);
       
-      // 초기 카테고리를 DB에서 받아온 카테고리의 첫번째 항목으로 설정
       const defaultCategory = categories.length > 0 ? categories[0].name : '건강';
       const [newHabit, setNewHabit] = useState({ title: '', category: defaultCategory, check_type: 'boolean', unit: '' });
       const [isSubmitting, setIsSubmitting] = useState(false);
       const [deleteModal, setDeleteModal] = useState({ isOpen: false, id: null, title: '' });
 
       const userHabits = habits.filter(h => h.user_code === userCode);
+      const userLogs = logs.filter(l => l.user_code === userCode);
 
       const handleDateChange = (days) => {
         const d = new Date(selectedDate);
         d.setDate(d.getDate() + days);
         setSelectedDate(formatDate(d));
+      };
+
+      const navigateStatsPeriod = (direction) => {
+        const newDate = new Date(statsAnchorDate);
+        if (statsPeriod === 'weekly') {
+          newDate.setDate(newDate.getDate() + (direction * 7));
+        } else if (statsPeriod === 'monthly') {
+          newDate.setMonth(newDate.getMonth() + direction);
+        } else if (statsPeriod === 'yearly') {
+          newDate.setFullYear(newDate.getFullYear() + direction);
+        }
+        setStatsAnchorDate(newDate);
+      };
+
+      const getPeriodInfo = () => {
+        const d = new Date(statsAnchorDate);
+        if (statsPeriod === 'weekly') {
+          const dayOfWeek = d.getDay();
+          const start = new Date(d);
+          start.setDate(d.getDate() - dayOfWeek);
+          const end = new Date(start);
+          end.setDate(start.getDate() + 6);
+          return {
+            label: `${start.getFullYear()}년 ${start.getMonth() + 1}월 ${Math.ceil(start.getDate()/7)}주차 (${start.getMonth()+1}.${start.getDate()} ~ ${end.getMonth()+1}.${end.getDate()})`,
+            startDateStr: formatDate(start),
+            endDateStr: formatDate(end),
+            totalDays: 7
+          };
+        } else if (statsPeriod === 'monthly') {
+          const year = d.getFullYear();
+          const month = d.getMonth();
+          const start = new Date(year, month, 1);
+          const end = new Date(year, month + 1, 0);
+          return {
+            label: `${year}년 ${month + 1}월`,
+            startDateStr: formatDate(start),
+            endDateStr: formatDate(end),
+            totalDays: end.getDate()
+          };
+        } else {
+          const year = d.getFullYear();
+          const start = new Date(year, 0, 1);
+          const end = new Date(year, 11, 31);
+          const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+          return {
+            label: `${year}년 전체`,
+            startDateStr: formatDate(start),
+            endDateStr: formatDate(end),
+            totalDays: isLeapYear ? 366 : 365
+          };
+        }
       };
 
       const handleAddHabit = async (e) => {
@@ -340,7 +376,6 @@
 
       const setBooleanLog = (habitId, newState, currentState) => {
         if (newState === currentState) {
-          // 이미 눌려있는 버튼을 다시 누르면 기록 삭제 (미선택 상태로 복귀)
           api.deleteLog(habitId, selectedDate);
         } else {
           api.upsertLog({ habit_id: habitId, user_code: userCode, date: selectedDate, is_completed: newState === 'O', numeric_value: null });
@@ -361,8 +396,6 @@
         );
       }
 
-      // 우측 통계를 위한 데이터 계산
-      const userLogs = logs.filter(l => l.user_code === userCode);
       const totalCompletionsThisWeek = userHabits.reduce((acc, habit) => acc + calculateWeeklyRate(habit.id, logs, habit.check_type, selectedDate), 0) / (userHabits.length || 1);
       
       const activeStreaks = userHabits
@@ -370,8 +403,10 @@
         .filter(h => h.streak >= 2)
         .sort((a, b) => b.streak - a.streak);
 
+      const periodInfo = getPeriodInfo();
+
       return (
-        <div className="max-w-7xl mx-auto pb-20 animate-in grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="max-w-7xl mx-auto pb-20 animate-in">
           <ConfirmModal 
             isOpen={deleteModal.isOpen} 
             title={`'${deleteModal.title}' 삭제`}
@@ -380,187 +415,306 @@
             onConfirm={executeDeleteHabit}
           />
 
-          {/* 좌측(메인): 체크리스트 영역 */}
-          <div className="lg:col-span-8 space-y-6">
-            <div className="flex items-center justify-between bg-white p-3 rounded-2xl shadow-sm border border-slate-100">
-              <button onClick={() => handleDateChange(-1)} className="p-2.5 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"><ArrowLeft className="w-5 h-5" /></button>
-              <div className="flex items-center space-x-2 font-bold text-lg text-slate-800">
-                <Calendar className="w-5 h-5 text-emerald-600" />
-                <span>{selectedDate === formatDate(new Date()) ? '오늘의 기록' : selectedDate}</span>
-              </div>
-              <button onClick={() => handleDateChange(1)} disabled={selectedDate === formatDate(new Date())} className={`p-2.5 rounded-xl transition-colors ${selectedDate === formatDate(new Date()) ? 'opacity-30 cursor-not-allowed' : 'hover:bg-slate-100 text-slate-600'}`}><ArrowRight className="w-5 h-5" /></button>
+          <div className="flex justify-center mb-8">
+            <div className="bg-slate-200/60 p-1.5 rounded-2xl inline-flex w-full sm:w-auto shadow-inner">
+              <button onClick={() => setMainTab('daily')} className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center transition-all ${mainTab === 'daily' ? 'bg-white text-emerald-700 shadow-md' : 'text-slate-600 hover:text-slate-900'}`}>
+                <Target className="w-4.5 h-4.5 mr-2" /> 일일 체크 대시보드
+              </button>
+              <button onClick={() => setMainTab('stats')} className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center transition-all ${mainTab === 'stats' ? 'bg-white text-emerald-700 shadow-md' : 'text-slate-600 hover:text-slate-900'}`}>
+                <BarChart3 className="w-4.5 h-4.5 mr-2" /> 기간별 분석 리포트 (주/월/연)
+              </button>
             </div>
+          </div>
 
-            <div className="space-y-4">
+          {mainTab === 'daily' ? (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              <div className="lg:col-span-8 space-y-6">
+                <div className="flex items-center justify-between bg-white p-3 rounded-2xl shadow-sm border border-slate-100">
+                  <button onClick={() => handleDateChange(-1)} className="p-2.5 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"><ArrowLeft className="w-5 h-5" /></button>
+                  <div className="flex items-center space-x-2 font-bold text-lg text-slate-800">
+                    <Calendar className="w-5 h-5 text-emerald-600" />
+                    <span>{selectedDate === formatDate(new Date()) ? '오늘의 기록' : selectedDate}</span>
+                  </div>
+                  <button onClick={() => handleDateChange(1)} disabled={selectedDate === formatDate(new Date())} className={`p-2.5 rounded-xl transition-colors ${selectedDate === formatDate(new Date()) ? 'opacity-30 cursor-not-allowed' : 'hover:bg-slate-100 text-slate-600'}`}><ArrowRight className="w-5 h-5" /></button>
+                </div>
+
+                <div className="space-y-4">
+                  {userHabits.length === 0 ? (
+                    <div className="text-center py-16 bg-white rounded-3xl border-2 border-dashed border-slate-200">
+                      <Target className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                      <p className="text-slate-500 font-medium mb-4">등록된 습관이 없습니다.<br/>새로운 도전을 시작해보세요!</p>
+                      <button onClick={() => setIsAdding(true)} className="px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-sm">습관 추가하기</button>
+                    </div>
+                  ) : (
+                    userHabits.map(habit => {
+                      const todayLog = logs.find(l => l.habit_id === habit.id && l.date === selectedDate);
+                      const isCompleted = todayLog ? (habit.check_type === 'boolean' ? todayLog.is_completed : todayLog.numeric_value > 0) : false;
+                      const booleanState = todayLog && habit.check_type === 'boolean' ? (todayLog.is_completed ? 'O' : 'X') : 'NONE';
+                      const numValue = todayLog && todayLog.numeric_value !== null && todayLog.numeric_value !== undefined ? todayLog.numeric_value : '';
+                      const streak = calculateStreak(habit.id, logs, habit.check_type, formatDate(new Date()));
+                      const weeklyRate = calculateWeeklyRate(habit.id, logs, habit.check_type, selectedDate);
+
+                      let borderClass = 'border-l-slate-200 hover:border-l-slate-300';
+                      if (habit.check_type === 'boolean') {
+                        if (booleanState === 'O') borderClass = 'border-l-emerald-500 shadow-md transform scale-[1.01]';
+                        if (booleanState === 'X') borderClass = 'border-l-red-500 shadow-sm';
+                      } else {
+                        if (isCompleted) borderClass = 'border-l-emerald-500 shadow-md transform scale-[1.01]';
+                      }
+
+                      return (
+                        <div key={habit.id} className={`bg-white p-5 rounded-2xl shadow-sm border-l-[5px] transition-all duration-300 ${borderClass}`}>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-600 rounded-md">{habit.category}</span>
+                                  {streak >= 3 && <span className="flex items-center text-xs font-bold text-orange-600 bg-orange-100 px-2.5 py-1 rounded-md animate-pulse"><Flame className="w-3.5 h-3.5 mr-1" /> {streak}일 연속!</span>}
+                                </div>
+                                <button onClick={() => setDeleteModal({ isOpen: true, id: habit.id, title: habit.title })} className="text-slate-300 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors" title="삭제">
+                                  <Trash2 className="w-4.5 h-4.5" />
+                                </button>
+                              </div>
+                              
+                              <h3 className={`text-xl font-bold tracking-tight ${isCompleted ? 'text-slate-800' : 'text-slate-700'}`}>{habit.title}</h3>
+                              
+                              <div className="mt-4 flex items-center space-x-3">
+                                <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className="h-full bg-gradient-to-r from-emerald-400 to-teal-400 transition-all duration-700" style={{ width: `${weeklyRate}%` }}></div>
+                                </div>
+                                <span className="text-xs font-bold text-slate-400 w-12 text-right">주 {weeklyRate}%</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-end sm:justify-start">
+                              {habit.check_type === 'boolean' ? (
+                                <div className="flex items-center space-x-2">
+                                  <button onClick={() => setBooleanLog(habit.id, 'O', booleanState)} className={`p-2.5 rounded-full transition-all duration-300 ${booleanState === 'O' ? 'text-emerald-500 bg-emerald-50 scale-110 shadow-sm' : 'text-slate-300 hover:text-slate-400 hover:bg-slate-50'}`} title="달성 (O)">
+                                    <CheckCircle2 className="w-10 h-10" />
+                                  </button>
+                                  <button onClick={() => setBooleanLog(habit.id, 'X', booleanState)} className={`p-2.5 rounded-full transition-all duration-300 ${booleanState === 'X' ? 'text-red-500 bg-red-50 scale-110 shadow-sm' : 'text-slate-300 hover:text-slate-400 hover:bg-slate-50'}`} title="실패 (X)">
+                                    <XCircle className="w-10 h-10" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center space-x-2 bg-slate-50 p-1.5 rounded-xl border border-slate-100">
+                                  <input type="number" value={numValue} onChange={(e) => updateNumericLog(habit.id, e.target.value)} placeholder="0" className="w-20 text-center font-bold text-lg px-2 py-2 border-none bg-white rounded-lg shadow-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+                                  <span className="text-slate-500 font-medium px-2">{habit.unit}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {userHabits.length > 0 && !isAdding && (
+                  <button onClick={() => setIsAdding(true)} className="w-full py-4 border-2 border-dashed border-emerald-200 text-emerald-600 bg-emerald-50/50 rounded-2xl font-bold flex items-center justify-center hover:bg-emerald-50 transition-colors shadow-sm">
+                    <Plus className="w-5 h-5 mr-2" /> 새 습관 추가하기
+                  </button>
+                )}
+
+                {isAdding && (
+                  <form onSubmit={handleAddHabit} className="bg-white p-6 rounded-2xl shadow-md border border-emerald-100 space-y-5 animate-slide-up">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">습관 명칭</label>
+                      <input type="text" value={newHabit.title} onChange={e => setNewHabit({...newHabit, title: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 transition-all" placeholder="예: 아침 러닝 30분" required autoFocus />
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-4">
+                      <div className="flex-1">
+                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">카테고리</label>
+                        <select value={newHabit.category} onChange={e => setNewHabit({...newHabit, category: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 transition-all bg-white">
+                          {categories.length === 0 && <option value="건강">건강 (기본)</option>}
+                          {categories.map(cat => (
+                            <option key={cat.id} value={cat.name}>{cat.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">기록 방식</label>
+                        <select value={newHabit.check_type} onChange={e => setNewHabit({...newHabit, check_type: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 transition-all bg-white">
+                          <option value="boolean">O/X (완료 여부)</option>
+                          <option value="numeric">수치 (횟수/시간 등)</option>
+                        </select>
+                      </div>
+                    </div>
+                    {newHabit.check_type === 'numeric' && (
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">측정 단위</label>
+                        <input type="text" value={newHabit.unit} onChange={e => setNewHabit({...newHabit, unit: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 transition-all" required placeholder="예: 분, 권, 회" />
+                      </div>
+                    )}
+                    <div className="flex gap-3 pt-2">
+                      <button type="button" onClick={() => setIsAdding(false)} className="flex-1 bg-slate-100 text-slate-700 py-3.5 rounded-xl font-bold hover:bg-slate-200 transition-colors">취소</button>
+                      <button type="submit" disabled={isSubmitting} className="flex-[2] bg-emerald-600 text-white py-3.5 rounded-xl font-bold hover:bg-emerald-700 shadow-md shadow-emerald-200 transition-all flex items-center justify-center disabled:opacity-70">
+                        {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : '추가 완료'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+
+              <div className="lg:col-span-4 space-y-6">
+                <div className="bg-slate-800 rounded-2xl p-6 text-white shadow-lg sticky top-24">
+                  <h2 className="text-xl font-bold flex items-center mb-6"><TrendingUp className="w-6 h-6 mr-2 text-emerald-400" /> 실시간 요약</h2>
+                  
+                  <div className="space-y-6">
+                    <div>
+                      <p className="text-slate-400 text-sm font-medium mb-1">나의 주간 달성률</p>
+                      <div className="flex items-end space-x-2">
+                        <span className="text-4xl font-extrabold text-white">{isNaN(totalCompletionsThisWeek) ? 0 : totalCompletionsThisWeek.toFixed(0)}</span>
+                        <span className="text-lg text-emerald-400 mb-1">%</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-700 rounded-full mt-3 overflow-hidden">
+                        <div className="h-full bg-emerald-400 transition-all duration-1000" style={{ width: `${isNaN(totalCompletionsThisWeek) ? 0 : totalCompletionsThisWeek}%` }}></div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-700 pt-6">
+                      <p className="text-slate-400 text-sm font-medium mb-3 flex items-center"><Flame className="w-4 h-4 mr-1 text-orange-400"/> 연속 달성 습관 (2일+)</p>
+                      <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                        {activeStreaks.length > 0 ? activeStreaks.map(h => (
+                          <div key={h.id} className="flex justify-between items-center bg-slate-700/50 p-2.5 rounded-xl">
+                            <span className="text-sm font-medium truncate pr-2">{h.title}</span>
+                            <span className="text-xs font-bold bg-orange-500/20 text-orange-300 px-2 py-1 rounded-md">{h.streak}일</span>
+                          </div>
+                        )) : (
+                          <p className="text-xs text-slate-500 text-center py-4 bg-slate-700/30 rounded-xl">아직 연속 달성 중인 습관이 없습니다.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-700 pt-6">
+                      <p className="text-slate-400 text-sm font-medium mb-3">전체 누적 기록</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="bg-slate-700/50 p-2 rounded-xl text-center">
+                          <p className="text-[11px] text-slate-400 mb-1">O (달성)</p>
+                          <p className="font-bold text-base text-emerald-400">{userLogs.filter(l => l.is_completed === true && l.numeric_value === null).length}회</p>
+                        </div>
+                        <div className="bg-slate-700/50 p-2 rounded-xl text-center">
+                          <p className="text-[11px] text-slate-400 mb-1">X (실패)</p>
+                          <p className="font-bold text-base text-red-400">{userLogs.filter(l => l.is_completed === false && l.numeric_value === null).length}회</p>
+                        </div>
+                        <div className="bg-slate-700/50 p-2 rounded-xl text-center">
+                          <p className="text-[11px] text-slate-400 mb-1">수치 기록</p>
+                          <p className="font-bold text-base text-blue-400">{userLogs.filter(l => l.numeric_value > 0).length}건</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6 max-w-5xl mx-auto animate-slide-up">
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-2xl w-full md:w-auto">
+                  <button onClick={() => setStatsPeriod('weekly')} className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-xl transition-all ${statsPeriod === 'weekly' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>주간 분석</button>
+                  <button onClick={() => setStatsPeriod('monthly')} className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-xl transition-all ${statsPeriod === 'monthly' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>월간 분석</button>
+                  <button onClick={() => setStatsPeriod('yearly')} className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-xl transition-all ${statsPeriod === 'yearly' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>연간 분석</button>
+                </div>
+
+                <div className="flex items-center space-x-3 w-full md:w-auto justify-between md:justify-end">
+                  <button onClick={() => navigateStatsPeriod(-1)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"><ChevronLeft className="w-5 h-5" /></button>
+                  <span className="font-bold text-base md:text-lg text-slate-800 flex items-center">
+                    <Calendar className="w-5 h-5 mr-2 text-emerald-600" /> {periodInfo.label}
+                  </span>
+                  <button onClick={() => navigateStatsPeriod(1)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"><ChevronRight className="w-5 h-5" /></button>
+                </div>
+              </div>
+
               {userHabits.length === 0 ? (
-                <div className="text-center py-16 bg-white rounded-3xl border-2 border-dashed border-slate-200">
-                  <Target className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                  <p className="text-slate-500 font-medium mb-4">등록된 습관이 없습니다.<br/>새로운 도전을 시작해보세요!</p>
-                  <button onClick={() => setIsAdding(true)} className="px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-sm">습관 추가하기</button>
+                <div className="text-center py-20 bg-white rounded-3xl border border-slate-100">
+                  <PieChart className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <p className="text-slate-500 font-medium">분석할 습관 데이터가 없습니다.</p>
                 </div>
               ) : (
-                userHabits.map(habit => {
-                  const todayLog = logs.find(l => l.habit_id === habit.id && l.date === selectedDate);
-                  const isCompleted = todayLog ? (habit.check_type === 'boolean' ? todayLog.is_completed : todayLog.numeric_value > 0) : false;
-                  const booleanState = todayLog && habit.check_type === 'boolean' ? (todayLog.is_completed ? 'O' : 'X') : 'NONE';
-                  const numValue = todayLog && todayLog.numeric_value !== null && todayLog.numeric_value !== undefined ? todayLog.numeric_value : '';
-                  const streak = calculateStreak(habit.id, logs, habit.check_type, formatDate(new Date()));
-                  const weeklyRate = calculateWeeklyRate(habit.id, logs, habit.check_type, selectedDate);
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {userHabits.map(habit => {
+                    const filteredLogs = userLogs.filter(l => 
+                      l.habit_id === habit.id && 
+                      l.date >= periodInfo.startDateStr && 
+                      l.date <= periodInfo.endDateStr
+                    );
 
-                  let borderClass = 'border-l-slate-200 hover:border-l-slate-300';
-                  if (habit.check_type === 'boolean') {
-                    if (booleanState === 'O') borderClass = 'border-l-emerald-500 shadow-md transform scale-[1.01]';
-                    if (booleanState === 'X') borderClass = 'border-l-red-500 shadow-sm';
-                  } else {
-                    if (isCompleted) borderClass = 'border-l-emerald-500 shadow-md transform scale-[1.01]';
-                  }
+                    const oCount = filteredLogs.filter(l => l.is_completed === true && l.numeric_value === null).length;
+                    const xCount = filteredLogs.filter(l => l.is_completed === false && l.numeric_value === null).length;
+                    const numericTotal = habit.check_type === 'numeric' 
+                      ? filteredLogs.reduce((acc, curr) => acc + (parseFloat(curr.numeric_value) || 0), 0)
+                      : 0;
+                    
+                    const loggedDays = filteredLogs.length;
+                    const achievementRate = habit.check_type === 'boolean'
+                      ? Math.round((oCount / (periodInfo.totalDays || 1)) * 100)
+                      : Math.round((filteredLogs.filter(l => l.numeric_value > 0).length / (periodInfo.totalDays || 1)) * 100);
 
-                  return (
-                    <div key={habit.id} className={`bg-white p-5 rounded-2xl shadow-sm border-l-[5px] transition-all duration-300 ${borderClass}`}>
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center space-x-2">
-                              <span className="text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-600 rounded-md">{habit.category}</span>
-                              {streak >= 3 && <span className="flex items-center text-xs font-bold text-orange-600 bg-orange-100 px-2.5 py-1 rounded-md animate-pulse"><Flame className="w-3.5 h-3.5 mr-1" /> {streak}일 연속!</span>}
-                            </div>
-                            <button onClick={() => setDeleteModal({ isOpen: true, id: habit.id, title: habit.title })} className="text-slate-300 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors" title="삭제">
-                              <Trash2 className="w-4.5 h-4.5" />
-                            </button>
+                    return (
+                      <div key={habit.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-5 hover:shadow-md transition-all">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-xs font-bold px-2.5 py-1 bg-slate-100 text-slate-600 rounded-md mb-2 inline-block">{habit.category}</span>
+                            <h3 className="text-xl font-bold text-slate-800">{habit.title}</h3>
                           </div>
-                          
-                          <h3 className={`text-xl font-bold tracking-tight ${isCompleted ? 'text-slate-800' : 'text-slate-700'}`}>{habit.title}</h3>
-                          
-                          <div className="mt-4 flex items-center space-x-3">
-                            <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-gradient-to-r from-emerald-400 to-teal-400 transition-all duration-700" style={{ width: `${weeklyRate}%` }}></div>
-                            </div>
-                            <span className="text-xs font-bold text-slate-400 w-12 text-right">주 {weeklyRate}%</span>
+                          <div className="bg-emerald-50 p-2.5 rounded-2xl text-emerald-600 font-extrabold text-sm">
+                            {achievementRate}% 달성
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-end sm:justify-start">
+                        <div>
+                          <div className="flex justify-between text-xs font-medium text-slate-400 mb-1.5">
+                            <span>기간 달성률</span>
+                            <span>{achievementRate}%</span>
+                          </div>
+                          <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full transition-all duration-700" style={{ width: `${Math.min(achievementRate, 100)}%` }}></div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 pt-2">
                           {habit.check_type === 'boolean' ? (
-                            <div className="flex items-center space-x-2">
-                              <button onClick={() => setBooleanLog(habit.id, 'O', booleanState)} className={`p-2.5 rounded-full transition-all duration-300 ${booleanState === 'O' ? 'text-emerald-500 bg-emerald-50 scale-110 shadow-sm' : 'text-slate-300 hover:text-slate-400 hover:bg-slate-50'}`} title="달성 (O)">
-                                <CheckCircle2 className="w-10 h-10" />
-                              </button>
-                              <button onClick={() => setBooleanLog(habit.id, 'X', booleanState)} className={`p-2.5 rounded-full transition-all duration-300 ${booleanState === 'X' ? 'text-red-500 bg-red-50 scale-110 shadow-sm' : 'text-slate-300 hover:text-slate-400 hover:bg-slate-50'}`} title="실패 (X)">
-                                <XCircle className="w-10 h-10" />
-                              </button>
-                            </div>
+                            <>
+                              <div className="bg-emerald-50/60 border border-emerald-100 p-3.5 rounded-2xl">
+                                <p className="text-xs text-emerald-700 font-semibold mb-1 flex items-center">
+                                  <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> 성공 (O)
+                                </p>
+                                <p className="text-2xl font-black text-emerald-800">{oCount}<span className="text-xs font-normal text-slate-500 ml-1">회</span></p>
+                              </div>
+                              <div className="bg-red-50/60 border border-red-100 p-3.5 rounded-2xl">
+                                <p className="text-xs text-red-700 font-semibold mb-1 flex items-center">
+                                  <XCircle className="w-3.5 h-3.5 mr-1" /> 실패 (X)
+                                </p>
+                                <p className="text-2xl font-black text-red-800">{xCount}<span className="text-xs font-normal text-slate-500 ml-1">회</span></p>
+                              </div>
+                            </>
                           ) : (
-                            <div className="flex items-center space-x-2 bg-slate-50 p-1.5 rounded-xl border border-slate-100">
-                              <input type="number" value={numValue} onChange={(e) => updateNumericLog(habit.id, e.target.value)} placeholder="0" className="w-20 text-center font-bold text-lg px-2 py-2 border-none bg-white rounded-lg shadow-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
-                              <span className="text-slate-500 font-medium px-2">{habit.unit}</span>
-                            </div>
+                            <>
+                              <div className="bg-blue-50/60 border border-blue-100 p-3.5 rounded-2xl">
+                                <p className="text-xs text-blue-700 font-semibold mb-1 flex items-center">
+                                  <Activity className="w-3.5 h-3.5 mr-1" /> 총 누적 수행량
+                                </p>
+                                <p className="text-2xl font-black text-blue-800">{numericTotal.toLocaleString()}<span className="text-xs font-normal text-slate-500 ml-1">{habit.unit}</span></p>
+                              </div>
+                              <div className="bg-indigo-50/60 border border-indigo-100 p-3.5 rounded-2xl">
+                                <p className="text-xs text-indigo-700 font-semibold mb-1 flex items-center">
+                                  <BarChart3 className="w-3.5 h-3.5 mr-1" /> 일 평균 (기록일 기준)
+                                </p>
+                                <p className="text-2xl font-black text-indigo-800">
+                                  {loggedDays > 0 ? (numericTotal / loggedDays).toFixed(1) : 0}
+                                  <span className="text-xs font-normal text-slate-500 ml-1">{habit.unit}</span>
+                                </p>
+                              </div>
+                            </>
                           )}
                         </div>
                       </div>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                </div>
               )}
             </div>
-
-            {/* 습관 추가 섹션 */}
-            {userHabits.length > 0 && !isAdding && (
-              <button onClick={() => setIsAdding(true)} className="w-full py-4 border-2 border-dashed border-emerald-200 text-emerald-600 bg-emerald-50/50 rounded-2xl font-bold flex items-center justify-center hover:bg-emerald-50 transition-colors shadow-sm">
-                <Plus className="w-5 h-5 mr-2" /> 새 습관 추가하기
-              </button>
-            )}
-
-            {isAdding && (
-              <form onSubmit={handleAddHabit} className="bg-white p-6 rounded-2xl shadow-md border border-emerald-100 space-y-5 animate-slide-up">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">습관 명칭</label>
-                  <input type="text" value={newHabit.title} onChange={e => setNewHabit({...newHabit, title: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 transition-all" placeholder="예: 아침 러닝 30분" required autoFocus />
-                </div>
-                <div className="flex flex-col sm:flex-row gap-4">
-                  <div className="flex-1">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">카테고리</label>
-                    <select value={newHabit.category} onChange={e => setNewHabit({...newHabit, category: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 transition-all bg-white">
-                      {categories.length === 0 && <option value="건강">건강 (기본)</option>}
-                      {categories.map(cat => (
-                        <option key={cat.id} value={cat.name}>{cat.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex-1">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">기록 방식</label>
-                    <select value={newHabit.check_type} onChange={e => setNewHabit({...newHabit, check_type: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 transition-all bg-white">
-                      <option value="boolean">O/X (완료 여부)</option>
-                      <option value="numeric">수치 (횟수/시간 등)</option>
-                    </select>
-                  </div>
-                </div>
-                {newHabit.check_type === 'numeric' && (
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">측정 단위</label>
-                    <input type="text" value={newHabit.unit} onChange={e => setNewHabit({...newHabit, unit: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 transition-all" required placeholder="예: 분, 권, 회" />
-                  </div>
-                )}
-                <div className="flex gap-3 pt-2">
-                  <button type="button" onClick={() => setIsAdding(false)} className="flex-1 bg-slate-100 text-slate-700 py-3.5 rounded-xl font-bold hover:bg-slate-200 transition-colors">취소</button>
-                  <button type="submit" disabled={isSubmitting} className="flex-[2] bg-emerald-600 text-white py-3.5 rounded-xl font-bold hover:bg-emerald-700 shadow-md shadow-emerald-200 transition-all flex items-center justify-center disabled:opacity-70">
-                    {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : '추가 완료'}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-
-          {/* 우측: 통합 통계 대시보드 */}
-          <div className="lg:col-span-4 space-y-6">
-            <div className="bg-slate-800 rounded-2xl p-6 text-white shadow-lg sticky top-24">
-              <h2 className="text-xl font-bold flex items-center mb-6"><TrendingUp className="w-6 h-6 mr-2 text-emerald-400" /> 종합 대시보드</h2>
-              
-              <div className="space-y-6">
-                <div>
-                  <p className="text-slate-400 text-sm font-medium mb-1">나의 전체 주간 달성률</p>
-                  <div className="flex items-end space-x-2">
-                    <span className="text-4xl font-extrabold text-white">{isNaN(totalCompletionsThisWeek) ? 0 : totalCompletionsThisWeek.toFixed(0)}</span>
-                    <span className="text-lg text-emerald-400 mb-1">%</span>
-                  </div>
-                  <div className="w-full h-2 bg-slate-700 rounded-full mt-3 overflow-hidden">
-                    <div className="h-full bg-emerald-400 transition-all duration-1000" style={{ width: `${isNaN(totalCompletionsThisWeek) ? 0 : totalCompletionsThisWeek}%` }}></div>
-                  </div>
-                </div>
-
-                <div className="border-t border-slate-700 pt-6">
-                  <p className="text-slate-400 text-sm font-medium mb-3 flex items-center"><Flame className="w-4 h-4 mr-1 text-orange-400"/> 현재 불타는 습관 (2일+)</p>
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
-                    {activeStreaks.length > 0 ? activeStreaks.map(h => (
-                      <div key={h.id} className="flex justify-between items-center bg-slate-700/50 p-2.5 rounded-xl">
-                        <span className="text-sm font-medium truncate pr-2">{h.title}</span>
-                        <span className="text-xs font-bold bg-orange-500/20 text-orange-300 px-2 py-1 rounded-md">{h.streak}일</span>
-                      </div>
-                    )) : (
-                      <p className="text-xs text-slate-500 text-center py-4 bg-slate-700/30 rounded-xl">아직 연속 달성 중인 습관이 없습니다.</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="border-t border-slate-700 pt-6">
-                  <p className="text-slate-400 text-sm font-medium mb-3">전체 누적 달성</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="bg-slate-700/50 p-2 rounded-xl text-center">
-                      <p className="text-[11px] text-slate-400 mb-1">O (달성)</p>
-                      <p className="font-bold text-base text-emerald-400">{userLogs.filter(l => l.is_completed === true && l.numeric_value === null).length}회</p>
-                    </div>
-                    <div className="bg-slate-700/50 p-2 rounded-xl text-center">
-                      <p className="text-[11px] text-slate-400 mb-1">X (실패)</p>
-                      <p className="font-bold text-base text-red-400">{userLogs.filter(l => l.is_completed === false && l.numeric_value === null).length}회</p>
-                    </div>
-                    <div className="bg-slate-700/50 p-2 rounded-xl text-center">
-                      <p className="text-[11px] text-slate-400 mb-1">수치 기록</p>
-                      <p className="font-bold text-base text-blue-400">{userLogs.filter(l => l.numeric_value > 0).length}건</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       );
     };
@@ -569,14 +723,10 @@
       const { users, habits, habitLogs, categories } = data;
       const [activeTab, setActiveTab] = useState('overview');
       const [newUserCode, setNewUserCode] = useState('');
-      const [assignForm, setAssignForm] = useState({ user_code: '', title: '', category: categories.length > 0 ? categories[0].name : '건강', check_type: 'boolean', unit: '' });
-      
-      // 카테고리 관리용 State
-      const [newCatName, setNewCatName] = useState('');
-      const [editingCat, setEditingCat] = useState({ id: null, name: '' });
-
+      const [assignForm, setAssignForm] = useState({ user_code: '', title: '', category: categories.length > 0 ? categories[0].name : '공통', check_type: 'boolean', unit: '' });
+      const [newCategory, setNewCategory] = useState('');
       const [isProcessing, setIsProcessing] = useState(false);
-      const [deleteModal, setDeleteModal] = useState({ isOpen: false, userCode: '' });
+      const [deleteModal, setDeleteModal] = useState({ isOpen: false, type: '', id: null, title: '' });
 
       const handleCreateUser = async (e) => {
         e.preventDefault();
@@ -598,26 +748,27 @@
 
       const handleAddCategory = async (e) => {
         e.preventDefault();
-        if (!newCatName.trim()) return;
+        if (!newCategory.trim()) return;
         setIsProcessing(true);
-        await api.addCategory(newCatName.trim());
-        setNewCatName('');
+        await api.addCategory(newCategory.trim());
+        setNewCategory('');
         setIsProcessing(false);
       };
 
-      const handleUpdateCategory = async (id) => {
-        if (!editingCat.name.trim()) return;
-        setIsProcessing(true);
-        await api.updateCategory(id, editingCat.name.trim());
-        setEditingCat({ id: null, name: '' });
-        setIsProcessing(false);
+      const executeDelete = async () => {
+        if (deleteModal.type === 'user') {
+          await api.deleteUser(deleteModal.id);
+        } else if (deleteModal.type === 'category') {
+          await api.deleteCategory(deleteModal.id);
+        }
+        setDeleteModal({ isOpen: false, type: '', id: null, title: '' });
       };
 
       if (isLoading) {
         return (
           <div className="flex flex-col items-center justify-center py-32 text-slate-600">
             <Loader2 className="w-10 h-10 animate-spin mb-4" />
-            <p className="font-bold">전체 관제 데이터를 가져오는 중...</p>
+            <p className="font-bold">Supabase에서 전체 데이터를 가져오는 중...</p>
           </div>
         );
       }
@@ -626,42 +777,39 @@
         <div className="max-w-5xl mx-auto pb-20 animate-in">
           <ConfirmModal 
             isOpen={deleteModal.isOpen} 
-            title="사용자 영구 삭제"
-            message={`'${deleteModal.userCode}' 유저 데이터가 삭제됩니다. 복구 불가합니다.`}
-            onCancel={() => setDeleteModal({ isOpen: false, userCode: '' })}
-            onConfirm={async () => {
-              if (deleteModal.userCode) await api.deleteUser(deleteModal.userCode);
-              setDeleteModal({ isOpen: false, userCode: '' });
-            }}
+            title={deleteModal.type === 'user' ? "사용자 영구 삭제" : "카테고리 삭제"}
+            message={deleteModal.type === 'user' ? `'${deleteModal.title}' 유저와 관련된 모든 데이터가 영구 삭제됩니다.` : `'${deleteModal.title}' 카테고리를 삭제하시겠습니까?`}
+            onCancel={() => setDeleteModal({ isOpen: false, type: '', id: null, title: '' })}
+            onConfirm={executeDelete}
           />
 
-          <div className="flex flex-wrap gap-2 bg-slate-200/50 p-1.5 rounded-2xl mb-8">
-            <button onClick={() => setActiveTab('overview')} className={`flex-1 min-w-[120px] py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'overview' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>전체 현황</button>
-            <button onClick={() => setActiveTab('users')} className={`flex-1 min-w-[120px] py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'users' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>계정 관리</button>
-            <button onClick={() => setActiveTab('categories')} className={`flex-1 min-w-[120px] py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'categories' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>카테고리 관리</button>
-            <button onClick={() => setActiveTab('assign')} className={`flex-1 min-w-[120px] py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'assign' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>습관 부여</button>
+          <div className="flex space-x-2 bg-slate-200/50 p-1.5 rounded-2xl mb-8 overflow-x-auto">
+            <button onClick={() => setActiveTab('overview')} className={`whitespace-nowrap flex-1 px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'overview' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>전체 현황</button>
+            <button onClick={() => setActiveTab('users')} className={`whitespace-nowrap flex-1 px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'users' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>계정 관리</button>
+            <button onClick={() => setActiveTab('categories')} className={`whitespace-nowrap flex-1 px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'categories' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>카테고리 관리</button>
+            <button onClick={() => setActiveTab('assign')} className={`whitespace-nowrap flex-1 px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'assign' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>습관 일괄 부여</button>
           </div>
 
           {activeTab === 'overview' && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center justify-between">
-                  <div><p className="text-sm text-slate-500 font-medium mb-1">총 사용자</p><h3 className="text-4xl font-bold text-slate-800">{users.length}</h3></div>
+                  <div><p className="text-sm text-slate-500 font-medium mb-1">총 등록 사용자</p><h3 className="text-4xl font-bold text-slate-800">{users.length}</h3></div>
                   <div className="p-4 bg-blue-50 rounded-2xl text-blue-500"><Users className="w-8 h-8"/></div>
                 </div>
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center justify-between">
-                  <div><p className="text-sm text-slate-500 font-medium mb-1">생성된 습관</p><h3 className="text-4xl font-bold text-slate-800">{habits.length}</h3></div>
+                  <div><p className="text-sm text-slate-500 font-medium mb-1">총 생성된 습관</p><h3 className="text-4xl font-bold text-slate-800">{habits.length}</h3></div>
                   <div className="p-4 bg-emerald-50 rounded-2xl text-emerald-500"><Target className="w-8 h-8"/></div>
                 </div>
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center justify-between">
-                  <div><p className="text-sm text-slate-500 font-medium mb-1">누적 기록</p><h3 className="text-4xl font-bold text-slate-800">{habitLogs.length}</h3></div>
+                  <div><p className="text-sm text-slate-500 font-medium mb-1">전체 누적 기록</p><h3 className="text-4xl font-bold text-slate-800">{habitLogs.length}</h3></div>
                   <div className="p-4 bg-orange-50 rounded-2xl text-orange-500"><Activity className="w-8 h-8"/></div>
                 </div>
               </div>
 
               <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
                 <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/50">
-                  <h3 className="font-bold text-slate-800">사용자별 요약</h3>
+                  <h3 className="font-bold text-slate-800">사용자별 요약 대시보드</h3>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm text-slate-600">
@@ -669,65 +817,24 @@
                       <tr>
                         <th className="px-6 py-4 font-semibold text-slate-700">유저 코드 (User ID)</th>
                         <th className="px-6 py-4 font-semibold text-slate-700">관리 중인 습관</th>
-                        <th className="px-6 py-4 font-semibold text-slate-700">최근 기록일</th>
+                        <th className="px-6 py-4 font-semibold text-slate-700">최근 접속/기록</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {users.length === 0 ? <tr><td colSpan="3" className="px-6 py-8 text-center text-slate-400">데이터가 없습니다.</td></tr> : users.map(user => {
                         const userHabitsCount = habits.filter(h => h.user_code === user.user_code).length;
                         const userLogs = habitLogs.filter(l => l.user_code === user.user_code).sort((a,b) => new Date(b.date) - new Date(a.date));
+                        const lastActive = userLogs.length > 0 ? userLogs[0].date : '기록 없음';
                         return (
                           <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="px-6 py-4 font-bold text-slate-800">{user.user_code}</td>
                             <td className="px-6 py-4"><span className="px-2.5 py-1 bg-slate-100 rounded-md font-medium">{userHabitsCount}개</span></td>
-                            <td className="px-6 py-4 text-slate-500">{userLogs.length > 0 ? userLogs[0].date : '-'}</td>
+                            <td className="px-6 py-4 text-slate-500">{lastActive}</td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'categories' && (
-            <div className="space-y-6">
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                <div className="flex items-center mb-4">
-                  <Tags className="w-5 h-5 text-emerald-600 mr-2" />
-                  <h3 className="font-bold text-lg text-slate-800">공통 카테고리 관리</h3>
-                </div>
-                <p className="text-sm text-slate-500 mb-6">여기서 설정한 카테고리는 일반 사용자가 습관을 등록할 때 선택 항목으로 노출됩니다.</p>
-                
-                <form onSubmit={handleAddCategory} className="flex gap-3 mb-8">
-                  <input type="text" value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder="새 카테고리 이름 입력 (예: 재테크)" className="flex-1 px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 transition-all" required />
-                  <button type="submit" disabled={isProcessing} className="px-6 py-3 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-900 transition-colors flex items-center disabled:opacity-70">
-                    {isProcessing ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Plus className="w-5 h-5 mr-1" />} 추가
-                  </button>
-                </form>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                  {categories.map(cat => (
-                    <div key={cat.id} className="flex items-center justify-between p-4 border border-slate-200 rounded-2xl bg-slate-50 hover:bg-white hover:shadow-sm transition-all group">
-                      {editingCat.id === cat.id ? (
-                        <div className="flex items-center w-full gap-2">
-                          <input type="text" value={editingCat.name} onChange={e => setEditingCat({...editingCat, name: e.target.value})} className="flex-1 px-2 py-1 rounded-md border border-emerald-500 focus:outline-none" autoFocus />
-                          <button onClick={() => handleUpdateCategory(cat.id)} className="text-emerald-600 p-1 bg-emerald-50 rounded-md"><Save className="w-4 h-4" /></button>
-                          <button onClick={() => setEditingCat({ id: null, name: '' })} className="text-slate-400 p-1"><X className="w-4 h-4" /></button>
-                        </div>
-                      ) : (
-                        <>
-                          <span className="font-bold text-slate-700">{cat.name}</span>
-                          <div className="flex gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => setEditingCat({ id: cat.id, name: cat.name })} className="text-slate-400 hover:text-blue-500 p-1.5 rounded-lg hover:bg-blue-50"><Edit3 className="w-4 h-4" /></button>
-                            <button onClick={() => api.deleteCategory(cat.id)} className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                  {categories.length === 0 && <p className="col-span-full text-center py-6 text-slate-400">등록된 카테고리가 없습니다.</p>}
                 </div>
               </div>
             </div>
@@ -751,8 +858,37 @@
                   {users.map(user => (
                     <div key={user.id} className="flex items-center justify-between p-4 border border-slate-200 rounded-2xl bg-slate-50 hover:bg-white hover:shadow-sm transition-all group">
                       <span className="font-bold text-slate-700">{user.user_code}</span>
-                      <button onClick={() => setDeleteModal({ isOpen: true, userCode: user.user_code })} className="text-slate-300 hover:text-red-500 p-2 rounded-xl hover:bg-red-50 transition-colors opacity-100 sm:opacity-0 group-hover:opacity-100">
+                      <button onClick={() => setDeleteModal({ isOpen: true, type: 'user', id: user.user_code, title: user.user_code })} className="text-slate-300 hover:text-red-500 p-2 rounded-xl hover:bg-red-50 transition-colors opacity-100 sm:opacity-0 group-hover:opacity-100">
                         <Trash2 className="w-4.5 h-4.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'categories' && (
+            <div className="space-y-6">
+              <form onSubmit={handleAddCategory} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col sm:flex-row items-end gap-4">
+                <div className="flex-1 w-full">
+                  <label className="block text-sm font-bold text-slate-700 mb-2">새 카테고리 추가</label>
+                  <input type="text" value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="예: 자기계발, 식습관" className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-slate-800 transition-all font-medium" required />
+                </div>
+                <button type="submit" disabled={isProcessing} className="w-full sm:w-auto px-8 py-3 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-900 transition-colors disabled:opacity-70 flex items-center justify-center">
+                  {isProcessing ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Plus className="w-5 h-5 mr-1" />} 추가
+                </button>
+              </form>
+
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6">
+                <h3 className="font-bold text-slate-800 mb-5">등록된 카테고리 명단</h3>
+                <div className="flex flex-wrap gap-3">
+                  {categories.length === 0 ? <p className="text-slate-400 text-sm py-4">등록된 카테고리가 없습니다.</p> : categories.map(cat => (
+                    <div key={cat.id} className="flex items-center space-x-2 bg-slate-100 px-4 py-2 rounded-xl border border-slate-200">
+                      <Tags className="w-4 h-4 text-slate-500" />
+                      <span className="font-bold text-slate-700">{cat.name}</span>
+                      <button onClick={() => setDeleteModal({ isOpen: true, type: 'category', id: cat.id, title: cat.name })} className="text-slate-400 hover:text-red-500 p-1 rounded-lg hover:bg-red-50 transition-colors ml-2">
+                        <X className="w-4 h-4" />
                       </button>
                     </div>
                   ))}
@@ -765,23 +901,24 @@
             <form onSubmit={handleAssignHabit} className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 max-w-2xl mx-auto">
               <div className="border-b border-slate-100 pb-4 mb-4">
                 <h3 className="font-bold text-xl text-slate-800">특정 사용자에게 습관 대리 부여</h3>
+                <p className="text-sm text-slate-500 mt-1">관리자 권한으로 대상 유저의 리스트에 직접 미션을 추가합니다.</p>
               </div>
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">대상 사용자 선택</label>
                 <select value={assignForm.user_code} onChange={e => setAssignForm({...assignForm, user_code: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white" required>
-                  <option value="">-- 사용자 선택 --</option>
+                  <option value="">-- 사용자 코드를 선택하세요 --</option>
                   {users.map(u => <option key={u.id} value={u.user_code}>{u.user_code}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">습관 명칭</label>
-                <input type="text" value={assignForm.title} onChange={e => setAssignForm({...assignForm, title: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200" required />
+                <label className="block text-sm font-bold text-slate-700 mb-2">부여할 습관 명칭</label>
+                <input type="text" value={assignForm.title} onChange={e => setAssignForm({...assignForm, title: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200" placeholder="예: 관리자 특별 미션" required />
               </div>
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="flex-1">
                   <label className="block text-sm font-bold text-slate-700 mb-2">카테고리</label>
                   <select value={assignForm.category} onChange={e => setAssignForm({...assignForm, category: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white">
-                    {categories.length === 0 && <option value="건강">건강 (기본)</option>}
+                    {categories.length === 0 && <option value="공통">공통 (기본)</option>}
                     {categories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}
                   </select>
                 </div>
@@ -794,14 +931,14 @@
                 </div>
               </div>
               {assignForm.check_type === 'numeric' && (
-                <div className="animate-in fade-in">
+                <div className="animate-in fade-in slide-in-from-top-2">
                   <label className="block text-sm font-bold text-slate-700 mb-2">단위</label>
-                  <input type="text" value={assignForm.unit} onChange={e => setAssignForm({...assignForm, unit: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200" required={assignForm.check_type === 'numeric'} />
+                  <input type="text" value={assignForm.unit} onChange={e => setAssignForm({...assignForm, unit: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200" required={assignForm.check_type === 'numeric'} placeholder="예: 분, 권, 회" />
                 </div>
               )}
               <div className="pt-4">
-                <button type="submit" disabled={isProcessing || !assignForm.user_code} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-emerald-700 shadow-md transition-all flex justify-center items-center disabled:opacity-70">
-                  {isProcessing ? <Loader2 className="w-6 h-6 animate-spin mr-2" /> : '강제 부여 실행'}
+                <button type="submit" disabled={isProcessing || !assignForm.user_code} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-emerald-700 shadow-md shadow-emerald-200 transition-all flex justify-center items-center disabled:opacity-70 disabled:cursor-not-allowed">
+                  {isProcessing ? <Loader2 className="w-6 h-6 animate-spin mr-2" /> : null} 강제 부여 실행
                 </button>
               </div>
             </form>
@@ -810,7 +947,7 @@
       );
     };
 
-    function App() {
+    const App = () => {
       const [currentUser, setCurrentUser] = useState(null);
       const [isAdmin, setIsAdmin] = useState(false);
       const [isAuthProcessing, setIsAuthProcessing] = useState(false);
@@ -827,12 +964,15 @@
             setCurrentUser(ADMIN_CODE);
           } else {
             const existingUser = users.find(u => u.user_code === upperCode);
-            if (!existingUser) await api.addUser(upperCode);
+            if (!existingUser) {
+              await api.addUser(upperCode);
+            }
             setIsAdmin(false);
             setCurrentUser(upperCode);
           }
         } catch (err) {
-           setErrorMsg("로그인 처리 중 문제가 발생했습니다.");
+           console.error("인증 에러:", err);
+           setErrorMsg("로그인 처리 중 오류가 발생했습니다.");
         } finally {
           setIsAuthProcessing(false);
         }
@@ -848,15 +988,15 @@
 
       if (!currentUser) {
         return (
-          <>
+          <React.Fragment>
             <ErrorBanner />
             <AuthScreen onLogin={handleLogin} isAuthProcessing={isAuthProcessing || isLoading} />
-          </>
+          </React.Fragment>
         );
       }
 
       return (
-        <div className="min-h-screen text-slate-800 font-sans selection:bg-emerald-200 selection:text-emerald-900 flex flex-col">
+        <div className="min-h-screen bg-slate-50 text-slate-800 font-sans selection:bg-emerald-200 selection:text-emerald-900">
           <ErrorBanner />
           
           <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
@@ -866,7 +1006,7 @@
                   {isAdmin ? <ShieldCheck className="w-5 h-5" /> : <Activity className="w-5 h-5" />}
                 </div>
                 <span className="font-bold text-lg hidden sm:block tracking-tight">
-                  {isAdmin ? '마스터 관제 센터' : 'Habit Tracker Dashboard'}
+                  {isAdmin ? '마스터 관제 센터' : 'Habit Tracker'}
                 </span>
               </div>
               
@@ -875,14 +1015,14 @@
                   <span className="text-xs text-slate-500 mr-2 hidden sm:inline">접속계정:</span>
                   <span className={`text-sm font-bold ${isAdmin ? 'text-blue-600' : 'text-emerald-600'}`}>{currentUser}</span>
                 </div>
-                <button onClick={handleLogout} className="text-slate-400 hover:text-red-500 transition-colors p-2 rounded-xl hover:bg-red-50 flex items-center">
+                <button onClick={handleLogout} className="text-slate-400 hover:text-red-500 transition-colors p-2 rounded-xl hover:bg-red-50 flex items-center" title="로그아웃">
                   <LogOut className="w-5 h-5" />
                 </button>
               </div>
             </div>
           </header>
 
-          <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 pt-8 pb-12">
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-8">
             {isAdmin ? (
               <AdminDashboard data={{users, habits, habitLogs, categories}} api={api} isLoading={isLoading} />
             ) : (
@@ -891,7 +1031,7 @@
           </main>
         </div>
       );
-    }
+    };
 
     const root = createRoot(document.getElementById('root'));
     root.render(<App />);
