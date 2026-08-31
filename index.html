@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>맞춤형 습관 시스템</title>
+  <title>개인 맞춤형 습관 관제 시스템</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   
@@ -42,7 +42,7 @@
     import { 
       CheckCircle2, Circle, Flame, TrendingUp, BarChart3, 
       LogOut, Plus, Trash2, Users, Calendar, ArrowLeft, ArrowRight,
-      Activity, Target, ShieldCheck, Loader2, AlertCircle, X,
+      Activity, Target, ShieldCheck, Loader2, AlertCircle, X, XCircle,
       Tags, Edit3, Save
     } from 'https://esm.sh/lucide-react@0.294.0?deps=react@18.2.0';
     import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
@@ -192,6 +192,14 @@
             else if (data && data.length > 0) setHabitLogs(prev => prev.map(l => l.id === tempLog.id ? data[0] : l)); 
           }
         },
+        deleteLog: async (habit_id, date) => {
+          const existing = habitLogs.find(l => l.habit_id === habit_id && l.date === date);
+          if (existing) {
+            setHabitLogs(prev => prev.filter(l => l.id !== existing.id));
+            const { error } = await supabase.from('habit_logs').delete().eq('id', existing.id);
+            if (error) { showError('기록 삭제 오류: ' + error.message); fetchAllData(); }
+          }
+        },
         /* [완전 동기화] 카테고리 관리 API (Supabase 연동 및 즉시 반영) */
         addCategory: async (name) => {
           const tempId = 'temp-cat-' + Date.now();
@@ -330,8 +338,13 @@
         }
       };
 
-      const toggleBooleanLog = (habitId, currentStatus) => {
-        api.upsertLog({ habit_id: habitId, user_code: userCode, date: selectedDate, is_completed: !currentStatus, numeric_value: null });
+      const setBooleanLog = (habitId, newState, currentState) => {
+        if (newState === currentState) {
+          // 이미 눌려있는 버튼을 다시 누르면 기록 삭제 (미선택 상태로 복귀)
+          api.deleteLog(habitId, selectedDate);
+        } else {
+          api.upsertLog({ habit_id: habitId, user_code: userCode, date: selectedDate, is_completed: newState === 'O', numeric_value: null });
+        }
       };
 
       const updateNumericLog = (habitId, value) => {
@@ -389,12 +402,21 @@
                 userHabits.map(habit => {
                   const todayLog = logs.find(l => l.habit_id === habit.id && l.date === selectedDate);
                   const isCompleted = todayLog ? (habit.check_type === 'boolean' ? todayLog.is_completed : todayLog.numeric_value > 0) : false;
+                  const booleanState = todayLog && habit.check_type === 'boolean' ? (todayLog.is_completed ? 'O' : 'X') : 'NONE';
                   const numValue = todayLog && todayLog.numeric_value !== null && todayLog.numeric_value !== undefined ? todayLog.numeric_value : '';
                   const streak = calculateStreak(habit.id, logs, habit.check_type, formatDate(new Date()));
                   const weeklyRate = calculateWeeklyRate(habit.id, logs, habit.check_type, selectedDate);
 
+                  let borderClass = 'border-l-slate-200 hover:border-l-slate-300';
+                  if (habit.check_type === 'boolean') {
+                    if (booleanState === 'O') borderClass = 'border-l-emerald-500 shadow-md transform scale-[1.01]';
+                    if (booleanState === 'X') borderClass = 'border-l-red-500 shadow-sm';
+                  } else {
+                    if (isCompleted) borderClass = 'border-l-emerald-500 shadow-md transform scale-[1.01]';
+                  }
+
                   return (
-                    <div key={habit.id} className={`bg-white p-5 rounded-2xl shadow-sm border-l-[5px] transition-all duration-300 ${isCompleted ? 'border-l-emerald-500 shadow-md transform scale-[1.01]' : 'border-l-slate-200 hover:border-l-slate-300'}`}>
+                    <div key={habit.id} className={`bg-white p-5 rounded-2xl shadow-sm border-l-[5px] transition-all duration-300 ${borderClass}`}>
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div className="flex-1">
                           <div className="flex items-center justify-between mb-2">
@@ -419,9 +441,14 @@
 
                         <div className="flex items-center justify-end sm:justify-start">
                           {habit.check_type === 'boolean' ? (
-                            <button onClick={() => toggleBooleanLog(habit.id, isCompleted)} className={`p-3 rounded-full transition-all duration-300 ${isCompleted ? 'text-emerald-500 bg-emerald-50 scale-110 shadow-sm' : 'text-slate-300 hover:text-slate-400 hover:bg-slate-50'}`}>
-                              {isCompleted ? <CheckCircle2 className="w-10 h-10" /> : <Circle className="w-10 h-10 stroke-1" />}
-                            </button>
+                            <div className="flex items-center space-x-2">
+                              <button onClick={() => setBooleanLog(habit.id, 'O', booleanState)} className={`p-2.5 rounded-full transition-all duration-300 ${booleanState === 'O' ? 'text-emerald-500 bg-emerald-50 scale-110 shadow-sm' : 'text-slate-300 hover:text-slate-400 hover:bg-slate-50'}`} title="달성 (O)">
+                                <CheckCircle2 className="w-10 h-10" />
+                              </button>
+                              <button onClick={() => setBooleanLog(habit.id, 'X', booleanState)} className={`p-2.5 rounded-full transition-all duration-300 ${booleanState === 'X' ? 'text-red-500 bg-red-50 scale-110 shadow-sm' : 'text-slate-300 hover:text-slate-400 hover:bg-slate-50'}`} title="실패 (X)">
+                                <XCircle className="w-10 h-10" />
+                              </button>
+                            </div>
                           ) : (
                             <div className="flex items-center space-x-2 bg-slate-50 p-1.5 rounded-xl border border-slate-100">
                               <input type="number" value={numValue} onChange={(e) => updateNumericLog(habit.id, e.target.value)} placeholder="0" className="w-20 text-center font-bold text-lg px-2 py-2 border-none bg-white rounded-lg shadow-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
@@ -516,14 +543,18 @@
 
                 <div className="border-t border-slate-700 pt-6">
                   <p className="text-slate-400 text-sm font-medium mb-3">전체 누적 달성</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-slate-700/50 p-3 rounded-xl text-center">
-                      <p className="text-xs text-slate-400 mb-1">O/X 체크</p>
-                      <p className="font-bold text-lg">{userLogs.filter(l => l.is_completed).length}회</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-slate-700/50 p-2 rounded-xl text-center">
+                      <p className="text-[11px] text-slate-400 mb-1">O (달성)</p>
+                      <p className="font-bold text-base text-emerald-400">{userLogs.filter(l => l.is_completed === true && l.numeric_value === null).length}회</p>
                     </div>
-                    <div className="bg-slate-700/50 p-3 rounded-xl text-center">
-                      <p className="text-xs text-slate-400 mb-1">수치 기록</p>
-                      <p className="font-bold text-lg">{userLogs.filter(l => l.numeric_value > 0).length}건</p>
+                    <div className="bg-slate-700/50 p-2 rounded-xl text-center">
+                      <p className="text-[11px] text-slate-400 mb-1">X (실패)</p>
+                      <p className="font-bold text-base text-red-400">{userLogs.filter(l => l.is_completed === false && l.numeric_value === null).length}회</p>
+                    </div>
+                    <div className="bg-slate-700/50 p-2 rounded-xl text-center">
+                      <p className="text-[11px] text-slate-400 mb-1">수치 기록</p>
+                      <p className="font-bold text-base text-blue-400">{userLogs.filter(l => l.numeric_value > 0).length}건</p>
                     </div>
                   </div>
                 </div>
